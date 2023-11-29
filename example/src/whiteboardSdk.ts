@@ -1,12 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { WhiteWebSdk, DeviceType} from "white-web-sdk";
-import { BezierPencilPlugin } from "@hqer/bezier-pencil-plugin";
-import { BezierPencilDisplayer } from "@hqer/bezier-pencil-plugin";
+import { BezierPencilPlugin } from "../../src/plugin/index";
+import { BezierPencilDisplayer } from "../../src/plugin/index";
 import { ECanvasContextType } from "@hqer/bezier-pencil-plugin";
 
 export async function createWhiteWebSdk(elm:HTMLDivElement) {
-    const uuid = 'c28edec08d0511ee90cba7667d54b7f2';
-    const roomToken = 'NETLESSROOM_YWs9VWtNUk92M1JIN2I2Z284dCZleHBpcmVBdD0xNzAxMTYzMDM3NTgwJm5vbmNlPWMyYjEwY2MwLThkMDUtMTFlZS1iZDVhLTE1NGY2YTdkMzViNiZyb2xlPTEmc2lnPTFkZjkwMjE3YWRjZjViZDQwZGJmZjkyNzk2ZjFjZjY0ODkxYzRlZDczNGY1ZmZhNzVhZDhjMDcyMDhjMzFmYTMmdXVpZD1jMjhlZGVjMDhkMDUxMWVlOTBjYmE3NjY3ZDU0YjdmMg';
+    const uuid = 'd4b898208dd211eeb62adde695452dc9';
+    const roomToken = 'NETLESSROOM_YWs9VWtNUk92M1JIN2I2Z284dCZleHBpcmVBdD0xNzAxMjUxMTE0ODMwJm5vbmNlPWQ0ZDJkNmUwLThkZDItMTFlZS1iZDVhLTE1NGY2YTdkMzViNiZyb2xlPTEmc2lnPTA5ZGNjZWRjODczMjE2YTUzZTRhZWEzN2U1MTA0MzlhMzRiODRiNTI4NzdlY2QzYmRjMDM3MGY4YWVkYTQyYmUmdXVpZD1kNGI4OTgyMDhkZDIxMWVlYjYyYWRkZTY5NTQ1MmRjOQ';
     const appIdentifier = '123456789/987654321';
     // const plugins = createPlugins({ "bezierPencilPlugin": bezierPencilPlugin });
     const whiteWebSdk = new WhiteWebSdk({
