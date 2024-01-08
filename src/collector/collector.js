@@ -2,18 +2,24 @@
 /* eslint-disable no-case-declarations */
 import { EPostMessageType, EToolsKey } from "../core/enum";
 import { autorun, toJS } from "white-web-sdk";
-import { BaseCollector } from "./base";
+import { BaseCollector, Storage_Splitter } from "./base";
 import { plainObjectKeys, transformToNormalData, transformToSerializableData } from "./utils";
 import isEqual from "lodash/isEqual";
 import { SelectorShape } from "../core/tools";
+import { cloneDeep } from "lodash";
 // import cloneDeep from "lodash/cloneDeep";
 /**
  * 服务端事件/状态同步收集器
  */
 export class Collector extends BaseCollector {
-    // private syncBatchMap: Map<string, BaseCollectorReducerAction> = new Map();
-    constructor(plugin) {
+    constructor(plugin, syncInterval) {
         super();
+        Object.defineProperty(this, "serviceStorage", {
+            enumerable: true,
+            configurable: true,
+            writable: true,
+            value: {}
+        });
         Object.defineProperty(this, "storage", {
             enumerable: true,
             configurable: true,
@@ -44,6 +50,13 @@ export class Collector extends BaseCollector {
             writable: true,
             value: void 0
         });
+        Object.defineProperty(this, "syncClockId", {
+            enumerable: true,
+            configurable: true,
+            writable: true,
+            value: void 0
+        });
+        Collector.syncInterval = syncInterval || Collector.syncInterval;
         this.plugin = plugin;
         this.uid = plugin.displayer.uid;
         const namespace = plugin.displayer.state.sceneState.sceneName;
@@ -52,8 +65,18 @@ export class Collector extends BaseCollector {
     addStorageStateListener(callBack) {
         this.stateDisposer = autorun(async () => {
             const storage = toJS(this.plugin.attributes[this.namespace]) || {};
-            const diff = this.diffFun(this.storage, storage);
-            this.storage = storage;
+            const diff = this.diffFun(this.serviceStorage, storage);
+            this.serviceStorage = storage;
+            for (const [key, value] of Object.entries(diff)) {
+                if (value?.newValue === undefined) {
+                    delete this.storage[key];
+                }
+                else {
+                    this.storage[key] = cloneDeep(value?.newValue);
+                }
+            }
+            // const diff = this.diffFun(this.storage, storage);
+            // this.storage = storage;
             callBack(diff);
         });
     }
@@ -97,10 +120,10 @@ export class Collector extends BaseCollector {
         return diff;
     }
     transformKey(workId) {
-        return this.uid + '++++' + workId;
+        return this.uid + Storage_Splitter + workId;
     }
     isOwn(key) {
-        return key.split('++++')[0] === this.uid;
+        return key.split(Storage_Splitter)[0] === this.uid;
     }
     dispatch(action) {
         //console.log('dispatch', action)
@@ -225,6 +248,7 @@ export class Collector extends BaseCollector {
                 const key = this.transformKey(SelectorShape.selectorId);
                 const old = this.storage[key];
                 const _opt = opt || old?.opt;
+                _selectIds && this.checkOtherSelector(key, _selectIds);
                 this.updateValue(key, _selectIds && {
                     type: EPostMessageType.Select,
                     toolsType: EToolsKey.Selector,
@@ -234,6 +258,21 @@ export class Collector extends BaseCollector {
                 break;
             default:
                 break;
+        }
+    }
+    checkOtherSelector(key, selectIds) {
+        for (const k of Object.keys(this.storage)) {
+            if (k !== key && this.getLocalId(k) === 'selector') {
+                const value = this.storage[k];
+                if (value && value.selectIds) {
+                    const ids = value.selectIds.filter(id => !selectIds.includes(id));
+                    if (ids.length > 0) {
+                        value.selectIds = ids;
+                    }
+                    console.log('checkOtherSelector', k, key, ids, this.serviceStorage[k]?.selectIds);
+                    this.updateValue(k, ids.length && value || undefined);
+                }
+            }
         }
     }
     setState(state) {
@@ -248,24 +287,81 @@ export class Collector extends BaseCollector {
                 delete this.storage[key];
             }
         }
-        const attr = {};
-        attr[this.namespace] = this.storage;
-        this.plugin.setAttributes(attr);
+        // const attr:BezierPencilPluginAttributes = {};
+        // attr[this.namespace] = this.storage;
+        this.runSyncService();
     }
     updateValue(key, value) {
-        const length = Object.keys(this.storage).length;
         if (value === undefined) {
             delete this.storage[key];
         }
         else {
             this.storage[key] = value;
         }
+        this.runSyncService();
+    }
+    runSyncService() {
+        if (!this.syncClockId) {
+            this.syncClockId = setTimeout(() => {
+                this.syncClockId = undefined;
+                this.syncSerivice();
+            }, Collector.syncInterval);
+        }
+    }
+    syncSerivice() {
+        const oldKeys = plainObjectKeys(this.serviceStorage);
+        const newKeys = plainObjectKeys(this.storage);
+        const willSyncMap = new Map();
+        let willSyncCount = 0;
+        for (const key of oldKeys) {
+            const _old = this.serviceStorage[key];
+            const _new = this.storage[key];
+            if (newKeys.includes(key)) {
+                if (isEqual(_old, _new)) {
+                    continue;
+                }
+                willSyncMap.set(key, _new);
+                willSyncCount++;
+                continue;
+            }
+            willSyncMap.set(key, undefined);
+        }
+        for (const key of newKeys) {
+            const _new = this.storage[key];
+            if (!oldKeys.includes(key)) {
+                willSyncMap.set(key, _new);
+                willSyncCount++;
+            }
+        }
+        if (willSyncCount > 5) {
+            this.syncStorage(this.storage);
+        }
+        else if (willSyncMap.size > 0) {
+            for (const [key, value] of willSyncMap.entries()) {
+                this.syncUpdata(key, value);
+            }
+        }
+    }
+    syncUpdata(key, value) {
+        const length = Object.keys(this.serviceStorage).length;
         if (!length) {
-            this.setState(this.storage);
+            this.syncStorage(this.storage);
         }
         else {
+            if (value === undefined) {
+                delete this.serviceStorage[key];
+            }
+            else {
+                this.serviceStorage[key] = value;
+            }
             this.plugin.updateAttributes([this.namespace, key], value);
         }
+    }
+    syncStorage(state) {
+        this.serviceStorage = cloneDeep(state);
+        const attr = {};
+        attr[this.namespace] = state;
+        this.plugin.setAttributes(attr);
     }
     transformToSerializableData(data) {
         return transformToSerializableData(data);
@@ -274,10 +370,16 @@ export class Collector extends BaseCollector {
         return transformToNormalData(str);
     }
     keyTransformWorkId(key) {
-        const list = key.split('++++');
+        const list = key.split(Storage_Splitter);
         return list.length === 2 ? list[1] : key;
     }
     destroy() {
         // TODO
     }
 }
+Object.defineProperty(Collector, "syncInterval", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: 1000
+});
